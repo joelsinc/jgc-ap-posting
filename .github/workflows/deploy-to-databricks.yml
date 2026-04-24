@@ -1,0 +1,59 @@
+name: Deploy to Databricks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'databricks/**'
+      - 'databricks.yml'
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify Databricks connection
+        run: |
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${{ secrets.DATABRICKS_HOST }}/api/2.0/clusters/list" \
+            -H "Authorization: Bearer ${{ secrets.DATABRICKS_TOKEN }}")
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Databricks authentication failed (HTTP $HTTP_CODE)"
+            exit 1
+          fi
+          echo "✅ Databricks connection verified"
+
+      - name: Sync repo to Databricks
+        run: |
+          REPO_ID=$(curl -s -X GET \
+            "${{ secrets.DATABRICKS_HOST }}/api/2.0/repos?path_prefix=/Users" \
+            -H "Authorization: Bearer ${{ secrets.DATABRICKS_TOKEN }}" \
+            | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          for r in data.get('repos', []):
+              if 'jgc-ap-posting' in r.get('url', '') or 'jgc-ap-posting' in r.get('path', ''):
+                  print(r['id'])
+                  break
+          ")
+
+          if [ -z "$REPO_ID" ]; then
+            echo "❌ Repo not found in Databricks — connect it once via Databricks UI → Repos → Add"
+            exit 1
+          fi
+
+          curl -s -X PATCH \
+            "${{ secrets.DATABRICKS_HOST }}/api/2.0/repos/$REPO_ID" \
+            -H "Authorization: Bearer ${{ secrets.DATABRICKS_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"branch": "main"}' > /dev/null
+
+          echo "✅ Repo synced to main (ID: $REPO_ID)"
+
+      - name: Summary
+        run: |
+          echo "✅ Deployed: ${{ github.sha }} → Databricks"

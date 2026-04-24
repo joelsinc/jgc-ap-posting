@@ -1,0 +1,40 @@
+name: Deploy Databricks Jobs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'databricks.yml'
+  workflow_dispatch:
+
+env:
+  DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+  DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+jobs:
+  deploy-jobs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Databricks CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+          databricks --version
+
+      - name: Configure Databricks
+        run: |
+          echo "[DEFAULT]" > ~/.databrickscfg
+          echo "host = $DATABRICKS_HOST" >> ~/.databrickscfg
+          echo "token = $DATABRICKS_TOKEN" >> ~/.databrickscfg
+
+      - name: Validate bundle
+        run: databricks bundle validate
+
+      - name: Deploy bundle (dev)
+        run: databricks bundle deploy -t dev
+
+      - name: Summary
+        run: |
+          echo "✅ jgc-ap-posting bundle deployed from databricks.yml"
